@@ -15,9 +15,20 @@ interface FlowchartNode {
   height: number
   label: string
   connections: string[]
+  decisionData?: {
+    criteria: string[]
+    patientData: Record<string, any>
+    reasoning: string[]
+  }
 }
 
-export default function FlowchartBuilder() {
+interface FlowchartBuilderProps {
+  highlightedNode?: string | null
+  onDecisionClick?: (nodeId: string, decisionData: any) => void
+  onNodeSelect?: (paragraphId: string) => void
+}
+
+export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onNodeSelect }: FlowchartBuilderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [nodes, setNodes] = useState<FlowchartNode[]>([
     {
@@ -27,7 +38,7 @@ export default function FlowchartBuilder() {
       y: 20,
       width: 60,
       height: 60,
-      label: "开始",
+      label: "开始检查",
       connections: ["process1", "process2"],
     },
     {
@@ -37,7 +48,7 @@ export default function FlowchartBuilder() {
       y: 120,
       width: 80,
       height: 50,
-      label: "处理1",
+      label: "超声扫描",
       connections: ["decision"],
     },
     {
@@ -47,7 +58,7 @@ export default function FlowchartBuilder() {
       y: 120,
       width: 80,
       height: 50,
-      label: "处理2",
+      label: "血液检测",
       connections: ["decision"],
     },
     {
@@ -57,8 +68,17 @@ export default function FlowchartBuilder() {
       y: 220,
       width: 100,
       height: 60,
-      label: "判断",
+      label: "病变判断",
       connections: ["process3"],
+      decisionData: {
+        criteria: ["肝脏形态", "血流信号", "回声特征"],
+        patientData: {
+          morphology: "异常",
+          bloodFlow: "减弱",
+          echoPattern: "不均匀",
+        },
+        reasoning: ["检测到肝脏囊性病变", "排除恶性肿瘤可能", "确认为良性囊肿"],
+      },
     },
     {
       id: "process3",
@@ -67,7 +87,7 @@ export default function FlowchartBuilder() {
       y: 320,
       width: 80,
       height: 50,
-      label: "处理3",
+      label: "生成报告",
       connections: ["end"],
     },
     {
@@ -77,13 +97,12 @@ export default function FlowchartBuilder() {
       y: 420,
       width: 60,
       height: 60,
-      label: "结束",
+      label: "完成诊断",
       connections: [],
     },
   ])
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
 
   const drawFlowchart = () => {
     const canvas = canvasRef.current
@@ -107,6 +126,14 @@ export default function FlowchartBuilder() {
           const startY = node.y + node.height
           const endX = targetNode.x + targetNode.width / 2
           const endY = targetNode.y
+
+          if (highlightedNode === node.id || highlightedNode === targetNode.id) {
+            ctx.strokeStyle = "#3b82f6"
+            ctx.lineWidth = 3
+          } else {
+            ctx.strokeStyle = "#666"
+            ctx.lineWidth = 2
+          }
 
           ctx.beginPath()
           ctx.moveTo(startX, startY)
@@ -135,10 +162,28 @@ export default function FlowchartBuilder() {
     // Draw nodes
     nodes.forEach((node) => {
       const isSelected = selectedNode === node.id
+      const isHighlighted = highlightedNode === node.id
 
-      ctx.fillStyle = isSelected ? "#3b82f6" : getNodeColor(node.type)
-      ctx.strokeStyle = isSelected ? "#1d4ed8" : "#666"
-      ctx.lineWidth = isSelected ? 3 : 1
+      let fillColor = getNodeColor(node.type)
+      let strokeColor = "#666"
+      let lineWidth = 1
+
+      if (isHighlighted) {
+        fillColor = "#3b82f6"
+        strokeColor = "#1d4ed8"
+        lineWidth = 4
+        // Add glow effect
+        ctx.shadowColor = "#3b82f6"
+        ctx.shadowBlur = 10
+      } else if (isSelected) {
+        fillColor = "#3b82f6"
+        strokeColor = "#1d4ed8"
+        lineWidth = 3
+      }
+
+      ctx.fillStyle = fillColor
+      ctx.strokeStyle = strokeColor
+      ctx.lineWidth = lineWidth
 
       if (node.type === "start" || node.type === "end") {
         // Draw circle
@@ -156,14 +201,24 @@ export default function FlowchartBuilder() {
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
+
+        if (node.decisionData) {
+          ctx.fillStyle = "#ef4444"
+          ctx.beginPath()
+          ctx.arc(node.x + node.width - 8, node.y + 8, 4, 0, 2 * Math.PI)
+          ctx.fill()
+        }
       } else {
         // Draw rectangle
         ctx.fillRect(node.x, node.y, node.width, node.height)
         ctx.strokeRect(node.x, node.y, node.width, node.height)
       }
 
+      // Reset shadow
+      ctx.shadowBlur = 0
+
       // Draw label
-      ctx.fillStyle = isSelected ? "#fff" : "#000"
+      ctx.fillStyle = isSelected || isHighlighted ? "#fff" : "#000"
       ctx.font = "12px sans-serif"
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
@@ -198,7 +253,27 @@ export default function FlowchartBuilder() {
       (node) => x >= node.x && x <= node.x + node.width && y >= node.y && y <= node.y + node.height,
     )
 
-    setSelectedNode(clickedNode ? clickedNode.id : null)
+    if (clickedNode) {
+      setSelectedNode(clickedNode.id)
+
+      if (clickedNode.type === "decision" && clickedNode.decisionData && onDecisionClick) {
+        onDecisionClick(clickedNode.id, clickedNode.decisionData)
+      }
+
+      if (onNodeSelect) {
+        const paragraphMap: Record<string, string> = {
+          start: "patient-info",
+          process1: "examination-method",
+          process2: "lab-results",
+          decision: "diagnosis-section",
+          process3: "report-generation",
+          end: "conclusion",
+        }
+        onNodeSelect(paragraphMap[clickedNode.id] || "")
+      }
+    } else {
+      setSelectedNode(null)
+    }
   }
 
   const addNode = (type: FlowchartNode["type"]) => {
@@ -244,13 +319,13 @@ export default function FlowchartBuilder() {
 
   useEffect(() => {
     drawFlowchart()
-  }, [nodes, selectedNode])
+  }, [nodes, selectedNode, highlightedNode])
 
   return (
     <Card className="w-full">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span>流程图编辑器</span>
+          <span>智能诊断流程图</span>
           <div className="flex space-x-2">
             <Button size="sm" variant="outline" onClick={() => addNode("start")}>
               开始
@@ -288,8 +363,20 @@ export default function FlowchartBuilder() {
         {selectedNode && (
           <div className="mt-4 p-4 bg-blue-50 rounded-lg">
             <p className="text-sm font-medium">已选择节点: {nodes.find((n) => n.id === selectedNode)?.label}</p>
+            {nodes.find((n) => n.id === selectedNode)?.type === "decision" && (
+              <div className="mt-2 text-xs text-gray-600">
+                <p>点击查看决策逻辑详情</p>
+              </div>
+            )}
           </div>
         )}
+
+        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+          <div className="flex items-center text-xs text-gray-600">
+            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+            <span>红点表示可查看决策逻辑的判断节点</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
