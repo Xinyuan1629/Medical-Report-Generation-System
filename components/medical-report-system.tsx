@@ -30,8 +30,7 @@ export default function MedicalReportSystem() {
   const [patientImages, setPatientImages] = useState<(string | null)[]>([null, null])
   const [flowchartData, setFlowchartData] = useState<{ name?: string; nodes: any[] }>({ nodes: [] })
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false)
-  const [imageAnalysisResult, setImageAnalysisResult] = useState<string>("")  
-  const [showImageAnalysisDialog, setShowImageAnalysisDialog] = useState(false)
+  const [imageAnalysisResult, setImageAnalysisResult] = useState<string>("")
   const fileInputRefs: Array<React.RefObject<HTMLInputElement>> = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
 
   const triggerFileInput = (index: number) => {
@@ -71,19 +70,18 @@ export default function MedicalReportSystem() {
   const handleImageAnalysis = async () => {
     // 过滤出有效的图像
     const validImages = patientImages.filter((img): img is string => img !== null)
-    
+
     if (validImages.length === 0) {
       alert("请先上传至少一张患者影像")
       return
     }
-    
+
     setIsAnalyzingImage(true)
     setImageAnalysisResult("")
-    setShowImageAnalysisDialog(true)
-    
+
     try {
       const result = await analyzeImage(validImages)
-      
+
       if (result.success) {
         setImageAnalysisResult(result.description)
       } else {
@@ -191,19 +189,19 @@ export default function MedicalReportSystem() {
       subtitle="左侧为流程图和影像对比分析，右侧为医疗报告生成。"
     >
       {/* 三栏布局：流程图 / 图像对比 / 报告 */}
-      <div className="grid grid-cols-3 gap-4 mb-6 items-stretch h-[700px]">
+      <div className="flex gap-4 mb-6 items-stretch h-[700px]">
         {/* 流程图 */}
-        <div className="h-full">
+        <div className="w-1/3 h-full">
           <FlowchartBuilder
             highlightedNode={highlightedNode}
             onDecisionClick={handleDecisionNodeClick}
             onNodeSelect={setSelectedParagraph}
-            /*onFlowchartChange={setFlowchartData}*/
+          /*onFlowchartChange={setFlowchartData}*/
           />
         </div>
 
         {/* 诊断图像对比 */}
-        <div className="h-full">
+        <div className="w-1/3 h-full">
           <Card className="h-full flex flex-col">
             <CardHeader>
               <CardTitle className="text-xl font-bold">
@@ -245,24 +243,24 @@ export default function MedicalReportSystem() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-ink-muted">标准对照</p>
-                  <div className="grid grid-cols-1 gap-2"> 
-                  {[3, 4].map((i) => (
-                    <div key={i} className="aspect-square bg-gray-900 rounded-lg overflow-hidden relative">
-                      <img
-                        src={`/medical-ultrasound-scan-${i}.jpg`}
-                        alt={`Reference scan ${i}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute top-1 right-1 bg-[var(--brand-iris)] text-white text-xs px-1 rounded">标准</div>
-                    </div>
-                  ))}
+                  <div className="grid grid-cols-1 gap-2">
+                    {[3, 4].map((i) => (
+                      <div key={i} className="aspect-square bg-gray-900 rounded-lg overflow-hidden relative">
+                        <img
+                          src={`/medical-ultrasound-scan-${i}.jpg`}
+                          alt={`Reference scan ${i}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-1 right-1 bg-[var(--brand-iris)] text-white text-xs px-1 rounded">标准</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              <Button 
-                size="sm" 
-                variant="outline" 
+              <Button
+                size="sm"
+                variant="outline"
                 className="w-full bg-transparent border-[var(--brand-iris)] text-[var(--brand-iris)] hover:bg-[color-mix(in_srgb,var(--brand-iris)_15%,transparent)]"
                 onClick={handleImageAnalysis}
                 disabled={isAnalyzingImage || patientImages.every(img => img === null)}
@@ -286,15 +284,58 @@ export default function MedicalReportSystem() {
                   </>
                 )}
               </Button>
+
+              {/* AI分析结果内联显示 */}
+              {(isAnalyzingImage || imageAnalysisResult) && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-medium text-slate-700 flex items-center">
+                      <Eye className="w-4 h-4 mr-1.5 text-[var(--brand-iris)]" />
+                      AI分析结果
+                    </h4>
+                    {imageAnalysisResult && !isAnalyzingImage && (
+                      <button
+                        onClick={() => setImageAnalysisResult("")}
+                        className="text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                  {isAnalyzingImage ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-[var(--brand-iris)] mr-2" />
+                      <span className="text-sm text-slate-500">正在分析...</span>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-700 leading-relaxed max-h-40 overflow-y-auto">
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: imageAnalysisResult
+                            .replace(/^###\s*(.+)$/gm, '<strong class="block mt-2 mb-1">$1</strong>')
+                            .replace(/^##\s*(.+)$/gm, '<strong class="block mt-2 mb-1">$1</strong>')
+                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/^[\-\*•]\s*/gm, '')
+                            .replace(/^\d+\.\s*/gm, '')
+                            .split('\n')
+                            .filter(line => line.trim())
+                            .map(line => `<p class="mb-1">${line}</p>`)
+                            .join('')
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* 报告生成 */}
-        <div className="h-full">
-          <MedicalReportComponent 
+        <div className="flex-1 h-full">
+          <MedicalReportComponent
             flowchart={flowchartData}
-            highlightedParagraph={selectedParagraph} 
+            highlightedParagraph={selectedParagraph}
             onParagraphClick={setSelectedParagraph}
             imageAnalysisResult={imageAnalysisResult}
           />
@@ -334,91 +375,6 @@ export default function MedicalReportSystem() {
         </div>
       )}
 
-      {/* 图像分析结果弹窗 */}
-      {showImageAnalysisDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-3xl max-h-[85vh] overflow-hidden panel-surface">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center">
-                <Eye className="w-6 h-6 mr-2 text-[var(--brand-iris)]" />
-                医学影像AI分析报告
-              </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setShowImageAnalysisDialog(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="overflow-y-auto max-h-[70vh]">
-              <div className="space-y-4">
-                {/* 显示分析的图像 */}
-                <div>
-                  <h4 className="font-medium mb-2 text-ink-muted">分析图像</h4>
-                  <div className="flex gap-2 flex-wrap">
-                    {patientImages.filter(img => img !== null).map((img, idx) => (
-                      <div key={idx} className="w-24 h-24 rounded-lg overflow-hidden border">
-                        <img src={img as string} alt={`分析图像 ${idx + 1}`} className="w-full h-full object-cover" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* 分析结果 */}
-                <div>
-                  <h4 className="font-medium mb-2 text-ink-muted">分析结果 (模型: qwen-vl-plus)</h4>
-                  {isAnalyzingImage ? (
-                    <div className="flex items-center justify-center p-8">
-                      <Loader2 className="w-8 h-8 animate-spin text-[var(--brand-iris)] mr-3" />
-                      <span className="text-ink-muted">正在使用 Qwen-VL 多模态模型分析图像...</span>
-                    </div>
-                  ) : (
-                    <div className="panel-soft rounded-lg p-4">
-                      <div 
-                        className="text-gray-800 leading-relaxed prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{
-                          __html: imageAnalysisResult
-                            ? imageAnalysisResult
-                                // 转换标题
-                                .replace(/^###\s*(.+)$/gm, '<strong class="text-base font-semibold block mt-2 mb-1">$1</strong>')
-                                .replace(/^##\s*(.+)$/gm, '<strong class="text-lg font-semibold block mt-3 mb-1">$1</strong>')
-                                .replace(/^#\s*(.+)$/gm, '<strong class="text-xl font-bold block mt-3 mb-1">$1</strong>')
-                                // 转换加粗
-                                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                                .replace(/__(.+?)__/g, '<strong>$1</strong>')
-                                // 转换斜体
-                                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                                .replace(/_(.+?)_/g, '<em>$1</em>')
-                                // 移除项目符号
-                                .replace(/^[\-\*•]\s*/gm, '')
-                                .replace(/^\d+\.\s*/gm, '')
-                                // 换行转为段落
-                                .split('\n')
-                                .filter(line => line.trim())
-                                .map(line => `<p class="mb-2">${line}</p>`)
-                                .join('')
-                            : '<p class="text-ink-muted">暂无分析结果</p>'
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-                
-                <div className="flex justify-end space-x-3 pt-4 border-t">
-                  <Button variant="outline" onClick={() => setShowImageAnalysisDialog(false)}>
-                    关闭
-                  </Button>
-                  {imageAnalysisResult && !isAnalyzingImage && (
-                    <Button onClick={() => {
-                      navigator.clipboard.writeText(imageAnalysisResult)
-                      alert("分析结果已复制到剪贴板")
-                    }}>
-                      复制结果
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {showAIDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
