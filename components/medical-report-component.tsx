@@ -522,7 +522,7 @@ export default function MedicalReportComponent({
   }
 
   return (
-    <Card className="w-full h-full bg-white border-0 shadow-md rounded-xl flex flex-col">
+    <Card className="w-full h-full panel-surface flex flex-col">
       <CardHeader>
         <CardTitle className="text-xl font-bold">超声医学检查报告</CardTitle>
         <div className="flex justify-end space-x-2">
