@@ -28,9 +28,15 @@ interface FlowchartBuilderProps {
   highlightedNode?: string | null
   onDecisionClick?: (nodeId: string, decisionData: any) => void
   onNodeSelect?: (paragraphId: string) => void
+  onFlowchartChange?: (flowchart: { name?: string; nodes: FlowchartNode[] }) => void
 }
 
-export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onNodeSelect }: FlowchartBuilderProps) {
+export default function FlowchartBuilder({
+  highlightedNode,
+  onDecisionClick,
+  onNodeSelect,
+  onFlowchartChange,
+}: FlowchartBuilderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [nodes, setNodes] = useState<FlowchartNode[]>([
     {
@@ -409,15 +415,24 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
     refreshTemplates()
   }, [])
 
+  useEffect(() => {
+    onFlowchartChange?.({
+      name: flowchartName.trim() || undefined,
+      nodes,
+    })
+  }, [flowchartName, nodes, onFlowchartChange])
+
   return (
-    <Card className="w-full h-full flex flex-col">
+    <Card className="w-full h-full flex flex-col border-0 shadow-[0_12px_28px_rgba(15,23,42,0.16)]">
       <CardHeader>
-        <CardTitle className="text-xl font-bold">智能诊断流程图</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+          <img src="/svg/flow.svg" alt="流程图标" className="h-8 w-8" />
+          智能诊断流程图</CardTitle>
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col overflow-hidden">
         {/* Canvas 绘图区域 - 可滚动 */}
-        <div className="flex-1 border border-gray-300 rounded-lg overflow-auto bg-white mb-4">
+        <div className="flex-1 rounded-lg overflow-auto bg-white mb-4 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.35)]">
           <canvas
             ref={canvasRef}
             width={400}
@@ -428,14 +443,15 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
         </div>
 
         {/* 模板与工具区 */}
-        <div className="mb-4 rounded-xl border border-slate-300 bg-gradient-to-br from-slate-50 via-cyan-50 to-emerald-50 p-3 shadow-sm">
+        <div className="mb-4 rounded-xl bg-[#dcdfe3] p-3 shadow-sm">
           {/* 第一行：名称输入 + 保存 */}
           <div className="mb-3 flex gap-2">
             <Input
+              className="h-8 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
               value={flowchartName}
               onChange={(e) => setFlowchartName(e.target.value)}
               placeholder="输入流程图名称"
-              className="flex-1 bg-white"
+              /*className="flex-1 bg-white"*/
             />
             <Button size="sm" onClick={saveFlowchart} title="保存到 server/flowcharts.json"
               className="w-20">保存</Button>
@@ -444,7 +460,7 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
           {/* 第二行：模版选择 + 导入 */}
           <div className="mb-3 flex gap-2">
             <select
-              className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
+              className="h-8 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
               value={selectedTemplate}
               onChange={(e) => setSelectedTemplate(e.target.value)}
             >
@@ -456,7 +472,7 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
               ))}
             </select>
             <Button size="sm" onClick={importTemplateFlowchart} disabled={!selectedTemplate} title="导入选中的模版"
-              className="w-20 h-10">
+              className="w-20 h-8">
               导入
             </Button>
           </div>

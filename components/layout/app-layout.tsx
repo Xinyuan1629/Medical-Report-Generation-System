@@ -3,6 +3,7 @@
 import { ReactNode, useState } from "react"
 import Sidebar from "./sidebar"
 import Header from "./header"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 
 interface AppLayoutProps {
   children: ReactNode
@@ -26,6 +27,7 @@ export default function AppLayout({
   sidebarProps,
 }: AppLayoutProps) {
   const [activeMenuItem, setActiveMenuItem] = useState(sidebarProps?.activeItem || "dashboard")
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const handleMenuItemClick = (item: string) => {
     setActiveMenuItem(item)
@@ -33,9 +35,21 @@ export default function AppLayout({
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="relative flex h-screen bg-background">
       {/* Sidebar */}
-      <Sidebar activeItem={activeMenuItem} onItemClick={handleMenuItemClick} />
+      {!isSidebarCollapsed && <Sidebar activeItem={activeMenuItem} onItemClick={handleMenuItemClick} />}
+
+      <button
+        type="button"
+        onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+        className={`absolute left-1 top-8 z-20 h-6 w-6 -translate-y-1/2 rounded-full border bg-white text-[var(--brand-iris)] shadow-md transition-all duration-200 hover:bg-[color-mix(in_srgb,var(--brand-iris)_10%,white)] ${
+          isSidebarCollapsed ? "left-3" : "left-[15rem]"
+        }`}
+        aria-label={isSidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+        title={isSidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+      >
+        {isSidebarCollapsed ? <ChevronRight className="mx-auto h-4 w-4" /> : <ChevronLeft className="mx-auto h-4 w-4" />}
+      </button>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">

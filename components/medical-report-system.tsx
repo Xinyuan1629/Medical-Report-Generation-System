@@ -189,22 +189,23 @@ export default function MedicalReportSystem() {
       subtitle="左侧为流程图和影像对比分析，右侧为医疗报告生成。"
     >
       {/* 三栏布局：流程图 / 图像对比 / 报告 */}
-      <div className="flex gap-4 mb-6 items-stretch h-[700px]">
+      <div className="flex gap-4 mb-6 items-stretch h-[700px] rounded-2xl bg-[#f5f3f2] p-3">
         {/* 流程图 */}
         <div className="w-1/3 h-full">
           <FlowchartBuilder
             highlightedNode={highlightedNode}
             onDecisionClick={handleDecisionNodeClick}
             onNodeSelect={setSelectedParagraph}
-          /*onFlowchartChange={setFlowchartData}*/
+            onFlowchartChange={setFlowchartData}
           />
         </div>
 
         {/* 诊断图像对比 */}
         <div className="w-1/3 h-full">
-          <Card className="h-full flex flex-col">
+          <Card className="h-full flex flex-col border-0 shadow-[0_12px_28px_rgba(15,23,42,0.16)]">
             <CardHeader>
-              <CardTitle className="text-xl font-bold">
+              <CardTitle className="flex items-center gap-2 text-xl font-bold">
+                <img src="/svg/图形图像处理.svg" alt="流程图标" className="h-8 w-8" />
                 诊断图像对比
               </CardTitle>
             </CardHeader>

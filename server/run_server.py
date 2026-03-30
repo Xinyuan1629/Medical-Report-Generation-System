@@ -2,6 +2,8 @@ import subprocess
 import sys
 import os
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
 def install_requirements():
     """Install required Python packages"""
     packages = [
@@ -9,7 +11,7 @@ def install_requirements():
         "uvicorn[standard]",
         "pydantic",
         "python-multipart",
-        "sqlite3"
+        "httpx"
     ]
     
     for package in packages:
@@ -22,17 +24,14 @@ def install_requirements():
 def run_server():
     """Run the FastAPI server"""
     try:
-        # First create the database
-        exec(open('scripts/database_setup.py').read())
-        
-        # Then run the server
+        # Start the backend that actually exposes /api/generate-report and /ws/generate-report
         subprocess.run([
             sys.executable, "-m", "uvicorn", 
-            "scripts.backend_api:app", 
+            "server.flowchart_save:app", 
             "--host", "0.0.0.0", 
             "--port", "8000", 
             "--reload"
-        ])
+        ], cwd=REPO_ROOT)
     except KeyboardInterrupt:
         print("\nServer stopped.")
     except Exception as e:

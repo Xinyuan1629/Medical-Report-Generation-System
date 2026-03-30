@@ -21,7 +21,10 @@ export default function Header({
       {/* Top Bar - Title and Actions */}
       <div className="px-8 py-4 flex items-center justify-between">
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-foreground mb-1">{title}</h1>
+          <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-foreground">
+            <img src="/svg/Q-生物.svg" alt="系统图标" className="h-8 w-8" />
+            <span>{title}</span>
+          </h1>
           <p className="text-sm text-ink-muted">{subtitle}</p>
         </div>
 

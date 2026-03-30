@@ -6,6 +6,9 @@ import os
 import asyncio
 import httpx
 import logging
+import uuid
+import re
+from datetime import datetime
 from fastapi import WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +27,153 @@ BASE_PROMPT = (
     "3. 直接输出当前节点的分析内容\n"
     "4. 结束节点需给出详细的诊断结论和建议\n"
 )
+
+KV_OUTPUT_FORMAT = (
+    "输出格式要求(必须严格遵守)：\n"
+    "1. 只输出一个 JSON 对象，不要输出 markdown，不要输出解释文字\n"
+    "2. 字段必须包含: node_id, node_label, node_type, summary, evidence, conclusion, suggestions\n"
+    "3. 只有结束节点(end)允许填写 suggestions；其它节点 suggestions 必须为空数组\n"
+    "4. suggestions 必须是字符串数组；没有建议时返回空数组\n"
+    "4. 所有字段值使用中文\n"
+    "JSON 模板如下：\n"
+    "{\n"
+    "  \"node_id\": \"当前节点id\",\n"
+    "  \"node_label\": \"当前节点名称\",\n"
+    "  \"node_type\": \"start/process/decision/end\",\n"
+    "  \"summary\": \"该节点摘要\",\n"
+    "  \"evidence\": \"判断依据\",\n"
+    "  \"conclusion\": \"该节点结论\",\n"
+    "  \"suggestions\": [\"建议1\", \"建议2\"]\n"
+    "}\n"
+)
+
+
+def _extract_json_object(text: str):
+    if not text:
+        return None
+
+    stripped = text.strip()
+    try:
+        obj = json.loads(stripped)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    fenced = re.search(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", stripped)
+    if fenced:
+        candidate = fenced.group(1)
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = stripped[start:end + 1]
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return None
+    return None
+
+
+def _extract_field_loose(text: str, field: str):
+    """Best-effort field extraction for malformed JSON-like model outputs."""
+    if not text:
+        return ""
+
+    # Match: "field": "..." (supports escaped quotes in content)
+    m = re.search(rf'"{field}"\s*:\s*"((?:\\.|[^"\\])*)"', text, flags=re.DOTALL)
+    if not m:
+        return ""
+
+    raw = m.group(1)
+    try:
+        # Decode common JSON escapes
+        return bytes(raw, "utf-8").decode("unicode_escape").strip()
+    except Exception:
+        return raw.strip()
+
+
+def _extract_suggestions_loose(text: str):
+    if not text:
+        return []
+
+    # Match: "suggestions": [ ... ]
+    m = re.search(r'"suggestions"\s*:\s*\[([\s\S]*?)\]', text)
+    if not m:
+        return []
+
+    inner = m.group(1)
+    items = re.findall(r'"((?:\\.|[^"\\])*)"', inner)
+    out = []
+    for it in items:
+        try:
+            val = bytes(it, "utf-8").decode("unicode_escape").strip()
+        except Exception:
+            val = it.strip()
+        if val:
+            out.append(val)
+    return out
+
+
+def _normalize_node_kv(raw_text: str, node: dict):
+    parsed = _extract_json_object(raw_text) or {}
+    suggestions = parsed.get("suggestions", [])
+    if isinstance(suggestions, str):
+        suggestions = [suggestions]
+    if not isinstance(suggestions, list):
+        suggestions = []
+
+    # If strict JSON parsing failed, try loose extraction from malformed JSON-like text.
+    if not parsed and raw_text:
+        parsed = {
+            "node_id": _extract_field_loose(raw_text, "node_id"),
+            "node_label": _extract_field_loose(raw_text, "node_label"),
+            "node_type": _extract_field_loose(raw_text, "node_type"),
+            "summary": _extract_field_loose(raw_text, "summary"),
+            "evidence": _extract_field_loose(raw_text, "evidence"),
+            "conclusion": _extract_field_loose(raw_text, "conclusion"),
+            "suggestions": _extract_suggestions_loose(raw_text),
+        }
+        suggestions = parsed.get("suggestions", [])
+
+    node_id = str(parsed.get("node_id") or node.get("id") or "")
+    node_label = str(parsed.get("node_label") or node.get("label") or node_id)
+    node_type = str(parsed.get("node_type") or node.get("type") or "")
+    summary = str(parsed.get("summary") or "").strip()
+    evidence = str(parsed.get("evidence") or "").strip()
+    conclusion = str(parsed.get("conclusion") or "").strip()
+
+    if not summary and raw_text:
+        summary = raw_text.strip().split("\n")[0][:120]
+    if not conclusion and raw_text:
+        # Avoid showing full JSON blob when parsing is imperfect.
+        if raw_text.strip().startswith("{") and '"node_id"' in raw_text:
+            conclusion = ""
+        else:
+            conclusion = raw_text.strip()
+
+    normalized_suggestions = [str(s).strip() for s in suggestions if str(s).strip()]
+    if node_type != "end":
+        normalized_suggestions = []
+
+    return {
+        "nodeId": node_id,
+        "nodeLabel": node_label,
+        "nodeType": node_type,
+        "summary": summary,
+        "evidence": evidence,
+        "conclusion": conclusion,
+        "suggestions": normalized_suggestions,
+        "rawText": (raw_text or "").strip(),
+    }
 
 # CORS - 允许本地前端访问（根据需要调整 origins）
 app.add_middleware(
@@ -44,6 +194,21 @@ DEFAULT_IMAGE_DIR = os.path.join(REPO_DIR, "CL", "image")
 if not os.path.exists(FLOWCHART_FILE):
     with open(FLOWCHART_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=2)
+
+reports_db = {}
+
+
+@app.post('/api/reports')
+async def create_report(request: Request):
+    data = await request.json()
+    report_id = str(uuid.uuid4())
+    saved = {
+        **data,
+        "id": report_id,
+        "createdAt": datetime.now().isoformat(),
+    }
+    reports_db[report_id] = saved
+    return saved
 
 #fail
 @app.post("/api/flowcharts")
@@ -301,8 +466,11 @@ async def generate_report(request: Request):
                 parts.append(f"这是处理节点'{node_label}'，请说明该步骤的具体内容和结果。")
             else:
                 parts.append(f"请根据节点'{node_label}'的功能，生成相应的报告内容。")
+            if node_type != 'end':
+                parts.append("当前节点不是结束节点：suggestions 必须返回空数组 []。")
         else:
             parts.append("请综合以上患者信息、图像分析结论和流程图逻辑，生成完整的医学诊断报告。报告应包含检查描述、影像学特征分析和诊断结论。")
+        parts.append(KV_OUTPUT_FORMAT)
         return "\n\n".join(parts)
     
     async def call_qwen(prompt: str) -> str:
@@ -389,7 +557,8 @@ async def generate_report(request: Request):
     for node in nodes:
         prompt = build_final_prompt(node)
         text = await call_qwen(prompt)
-        results.append({'id': node.get('id'), 'text': text})
+        kv = _normalize_node_kv(text, node)
+        results.append({'id': node.get('id'), 'text': text, 'kv': kv})
 
     logging.info(f"报告生成完成，使用模型: {model_used}")
     return {
@@ -473,8 +642,11 @@ async def websocket_generate_report(ws: WebSocket):
                     parts.append(f"这是处理节点'{node_label}'，请说明该步骤的具体内容和结果。")
                 else:
                     parts.append(f"请根据节点'{node_label}'的功能，生成相应的报告内容。")
+                if node_type != 'end':
+                    parts.append("当前节点不是结束节点：suggestions 必须返回空数组 []。")
             else:
                 parts.append("请综合以上患者信息、图像分析结论和流程图逻辑，生成完整的医学诊断报告。报告应包含检查描述、影像学特征分析和诊断结论。")
+            parts.append(KV_OUTPUT_FORMAT)
             return "\n\n".join(parts)
 
         async def call_qwen_ws(prompt: str) -> str:
@@ -529,7 +701,8 @@ async def websocket_generate_report(ws: WebSocket):
 
             prompt = build_final_prompt(node)
             text_out = await call_qwen_ws(prompt)
-            msg = {'type':'node','id':node.get('id'),'text':text_out,'node':node}
+            kv = _normalize_node_kv(text_out, node)
+            msg = {'type':'node','id':node.get('id'),'text':text_out,'node':node, 'kv': kv}
             await ws.send_text(json.dumps(msg))
             # small delay between nodes
             await asyncio.sleep(0.1)

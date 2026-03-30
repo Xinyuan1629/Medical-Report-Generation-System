@@ -27,6 +27,16 @@ interface MedicalReport {
   createdAt?: string
 }
 
+interface NodeKVResult {
+  nodeId: string
+  nodeLabel: string
+  nodeType: string
+  evidence: string
+  conclusion: string
+  suggestions: string[]
+  rawText: string
+}
+
 interface MedicalReportComponentProps {
   flowchart: {
     name?: string
@@ -74,6 +84,88 @@ export default function MedicalReportComponent({
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationProgress, setGenerationProgress] = useState("")
   const [isConclusionCollapsed, setIsConclusionCollapsed] = useState(false)  // 结论收起状态
+  const [nodeKvResults, setNodeKvResults] = useState<NodeKVResult[]>([])
+
+  const normalizeNodeKv = (msg: any): NodeKVResult => {
+    const kv = msg?.kv && typeof msg.kv === "object" ? msg.kv : {}
+    const rawText = typeof msg?.text === "string" ? msg.text.trim() : ""
+    const nodeId = String(kv.nodeId || msg?.id || "")
+    const nodeLabel = String(kv.nodeLabel || msg?.node?.label || nodeId)
+    const nodeType = String(kv.nodeType || msg?.node?.type || "")
+    const evidence = String(kv.evidence || "")
+    const conclusion = String(kv.conclusion || rawText)
+    const suggestions = Array.isArray(kv.suggestions)
+      ? kv.suggestions.map((s: any) => String(s).trim()).filter((s: string) => s.length > 0)
+      : []
+
+    return {
+      nodeId,
+      nodeLabel,
+      nodeType,
+      evidence,
+      conclusion,
+      suggestions,
+      rawText,
+    }
+  }
+
+  const upsertNodeKv = (items: NodeKVResult[], item: NodeKVResult) => {
+    const idx = items.findIndex((x) => x.nodeId === item.nodeId)
+    if (idx === -1) return [...items, item]
+    const copy = [...items]
+    copy[idx] = item
+    return copy
+  }
+
+  const buildConclusionAndSuggestions = (items: NodeKVResult[]) => {
+    const conclusionText = items
+      .map((item) => `【${item.nodeLabel || item.nodeId}】\n${getNodeConclusionText(item)}`)
+      .join("\n\n")
+
+    const endNodeSuggestions = [...items]
+      .reverse()
+      .find((item) => item.nodeType === "end" && item.suggestions.length > 0)?.suggestions || []
+
+    const suggestionsText = endNodeSuggestions
+      .map((s) => `- ${s}`)
+      .join("\n")
+
+    return { conclusionText, suggestionsText }
+  }
+
+  const getNodeConclusionText = (item: NodeKVResult) => {
+    if (item.conclusion && item.conclusion.trim()) return item.conclusion.trim()
+    const raw = (item.rawText || "").trim()
+    if (raw.startsWith("{") && raw.includes('"node_id"')) {
+      return "模型返回格式异常，未能解析该节点结论"
+    }
+    return raw || "-"
+  }
+
+  const getSuggestionItems = () => {
+    if (!report.suggestions || !report.suggestions.trim()) return [] as string[]
+    return report.suggestions
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => line.replace(/^[-•*]\s*/, "").trim())
+      .filter((line) => line.length > 0)
+  }
+
+  const getNodeTitleClass = (nodeType: string) => {
+    switch (nodeType) {
+      case "start":
+        return "text-cyan-700"
+      case "process":
+        return "text-emerald-700"
+      case "decision":
+        return "text-violet-700"
+      case "end":
+        return "text-rose-700"
+      default:
+        return "text-slate-700"
+    }
+  }
 
   // 将 Markdown 转换为 HTML（保留样式效果）
   const markdownToHtml = (text: string): string => {
@@ -245,6 +337,7 @@ export default function MedicalReportComponent({
     // 检查 flowchart 是否存在
     if (!flowchart || !flowchart.nodes || flowchart.nodes.length === 0) {
       setGenerationProgress("错误：没有流程图数据，请先创建或加载流程图")
+      alert("没有流程图数据，请先在左侧流程图模块创建或导入流程图后再点击 AI智能生成。")
       setIsGenerating(false)
       return
     }
@@ -252,6 +345,8 @@ export default function MedicalReportComponent({
     try {
       const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
       const wsUrl = base.replace(/^http/, "ws") + "/ws/generate-report"
+      let isCompleted = false
+      let isFallingBack = false
       
       const ws = new WebSocket(wsUrl)
       
@@ -259,6 +354,7 @@ export default function MedicalReportComponent({
         setGenerationProgress("已连接，正在发送请求...")
         // 开始生成前清空结论和建议
         setReport(prev => ({ ...prev, conclusion: "", suggestions: "" }))
+        setNodeKvResults([])
         
         // 发送流程图数据 - 如果有 name 就用 name，否则发送整个 flowchart
         const payload: any = {
@@ -312,70 +408,25 @@ export default function MedicalReportComponent({
               onParagraphClick(msg.id)
             }
             
-            // 累积所有节点的结果
-            setReport(prev => {
-              const newReport = { ...prev }
-              if (msg.text && !msg.text.startsWith("[ERROR]")) {
-                const nodeLabel = msg.node?.label || msg.id
-                
-                // 检查是否包含建议内容，用多种关键词匹配
-                const suggestionPatterns = [
-                  /建议如下[：:]([\s\S]*)/,
-                  /诊疗建议[：:]([\s\S]*)/,
-                  /治疗建议[：:]([\s\S]*)/,
-                  /生活建议[：:]([\s\S]*)/,
-                  /(\d+[.、]\s*建议[\s\S]*)/,
-                  /(建议：[\s\S]*)/,
-                ]
-                
-                let suggestionText = ""
-                let conclusionText = msg.text
-                
-                // 尝试匹配建议内容
-                for (const pattern of suggestionPatterns) {
-                  const match = msg.text.match(pattern)
-                  if (match) {
-                    suggestionText = match[0]
-                    conclusionText = msg.text.replace(match[0], "").trim()
-                    break
-                  }
-                }
-                
-                // 如果没匹配到但包含"建议"关键词，尝试从"建议"开始截取
-                if (!suggestionText && msg.text.includes("建议")) {
-                  const suggestionIndex = msg.text.indexOf("建议")
-                  // 往前找一个换行符或句号作为分割点
-                  let startIndex = suggestionIndex
-                  for (let i = suggestionIndex - 1; i >= 0; i--) {
-                    if (msg.text[i] === '\n' || msg.text[i] === '。' || msg.text[i] === '：' || msg.text[i] === ':') {
-                      startIndex = i + 1
-                      break
-                    }
-                    if (suggestionIndex - i > 10) break // 最多往前找10个字符
-                  }
-                  suggestionText = msg.text.substring(startIndex).trim()
-                  conclusionText = msg.text.substring(0, startIndex).trim()
-                }
-                
-                // 添加结论部分
-                if (conclusionText) {
-                  const separator = newReport.conclusion ? "\n\n" : ""
-                  newReport.conclusion = (newReport.conclusion || "") + separator + `【${nodeLabel}】\n${conclusionText}`
-                }
-                
-                // 添加建议部分
-                if (suggestionText) {
-                  const suggestionSeparator = newReport.suggestions ? "\n\n" : ""
-                  newReport.suggestions = (newReport.suggestions || "") + suggestionSeparator + suggestionText
-                }
-              }
-              return newReport
-            })
+            if (msg.text && !msg.text.startsWith("[ERROR]")) {
+              const nextItem = normalizeNodeKv(msg)
+              setNodeKvResults((prevItems) => {
+                const updated = upsertNodeKv(prevItems, nextItem)
+                const { conclusionText, suggestionsText } = buildConclusionAndSuggestions(updated)
+                setReport((prevReport) => ({
+                  ...prevReport,
+                  conclusion: conclusionText,
+                  suggestions: suggestionsText,
+                }))
+                return updated
+              })
+            }
             
             setGenerationProgress(`节点 ${msg.id} 生成完成`)
           }
 
           if (msg.type === "done") {
+            isCompleted = true
             setIsGenerating(false)
             setGenerationProgress("生成完成！")
             setTimeout(() => setGenerationProgress(""), 2000)
@@ -389,13 +440,17 @@ export default function MedicalReportComponent({
       ws.onerror = (error) => {
         console.error("WebSocket 错误:", error)
         setGenerationProgress("连接错误，尝试使用 REST API...")
+        isFallingBack = true
         ws.close()
         // 降级到 REST API
         generateAIReportRest()
       }
       
       ws.onclose = () => {
-        if (isGenerating) {
+        if (!isCompleted && !isFallingBack) {
+          setGenerationProgress("连接已关闭，请重试")
+        }
+        if (!isCompleted && !isFallingBack) {
           setIsGenerating(false)
         }
       }
@@ -443,10 +498,13 @@ export default function MedicalReportComponent({
       
       // 更新报告
       if (data.nodes && data.nodes.length > 0) {
-        const generatedText = data.nodes.map((n: any) => n.text).join("\n\n")
+        const items = data.nodes.map((n: any) => normalizeNodeKv(n))
+        const { conclusionText, suggestionsText } = buildConclusionAndSuggestions(items)
+        setNodeKvResults(items)
         setReport(prev => ({
           ...prev,
-          conclusion: generatedText,
+          conclusion: conclusionText,
+          suggestions: suggestionsText,
         }))
       }
       
@@ -502,7 +560,8 @@ export default function MedicalReportComponent({
 
   const saveReport = async () => {
     try {
-      const response = await fetch("/api/reports", {
+      const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+      const response = await fetch(`${base}/api/reports`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -515,6 +574,9 @@ export default function MedicalReportComponent({
         setReport(savedReport)
         setIsEditing(false)
         console.log("Report saved successfully")
+      } else {
+        const errText = await response.text()
+        console.error("Save report failed:", response.status, errText)
       }
     } catch (error) {
       console.error("Error saving report:", error)
@@ -522,9 +584,12 @@ export default function MedicalReportComponent({
   }
 
   return (
-    <Card className="w-full h-full panel-surface flex flex-col">
+    <Card className="w-full h-full panel-surface flex flex-col border-0 shadow-[0_12px_28px_rgba(15,23,42,0.16)]">
       <CardHeader>
-        <CardTitle className="text-xl font-bold">超声医学检查报告</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+          <img src="/svg/报告.svg" alt="流程图标" className="h-7 w-7" />
+          超声医学检查报告
+        </CardTitle>
         <div className="flex justify-end space-x-2">
           <Button variant="outline" size="sm" onClick={generateAIReport} disabled={isGenerating}>
             {isGenerating ? "AI生成中..." : "AI智能生成"}
@@ -538,10 +603,14 @@ export default function MedicalReportComponent({
             </Button>
           )}
         </div>
-        {isGenerating && (
+        {(isGenerating || !!generationProgress) && (
           <div className="mt-2 p-2 panel-soft rounded-lg">
             <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--brand-iris)]"></div>
+              {isGenerating ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--brand-iris)]"></div>
+              ) : (
+                <div className="rounded-full h-4 w-4 border border-[var(--brand-iris)]"></div>
+              )}
               <span className="text-sm text-[var(--brand-iris)]">{generationProgress}</span>
             </div>
           </div>
@@ -738,10 +807,22 @@ export default function MedicalReportComponent({
               />
             ) : (
               <div className={`p-3 panel-soft rounded-lg transition-all duration-300 relative ${isConclusionCollapsed ? 'max-h-20 overflow-hidden' : ''}`}>
-                <div 
-                  className="text-sm whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{ __html: markdownToHtml(report.conclusion || "待填写结论...") }}
-                />
+                {nodeKvResults.length > 0 ? (
+                  <div className="space-y-2">
+                    {nodeKvResults.map((item) => (
+                      <div key={item.nodeId} className="rounded-lg border border-slate-200 bg-white p-2">
+                        <p className={`text-sm font-semibold ${getNodeTitleClass(item.nodeType)}`}>{item.nodeLabel || item.nodeId}</p>
+                        <p className="text-sm"><span className="font-medium">结论：</span>{getNodeConclusionText(item)}</p>
+                        {item.evidence && <p className="text-sm"><span className="font-medium">依据：</span>{item.evidence}</p>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div 
+                    className="text-sm whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: markdownToHtml(report.conclusion || "待填写结论...") }}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -765,10 +846,18 @@ export default function MedicalReportComponent({
               />
             ) : (
               <div className="p-3 panel-accent rounded-lg">
-                <div 
-                  className="text-sm text-foreground whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{ __html: markdownToHtml(report.suggestions || "暂无建议，点击「AI智能生成」自动生成诊疗建议...") }}
-                />
+                {getSuggestionItems().length > 0 ? (
+                  <ul className="space-y-2">
+                    {getSuggestionItems().map((item, idx) => (
+                      <li key={`${idx}-${item.slice(0, 12)}`} className="rounded-md bg-white/70 px-3 py-2 text-sm text-foreground">
+                        <span className="mr-2 font-semibold text-[var(--brand-iris)]">{idx + 1}.</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-foreground">暂无建议，点击「AI智能生成」自动生成诊疗建议...</div>
+                )}
               </div>
             )}
           </div>
