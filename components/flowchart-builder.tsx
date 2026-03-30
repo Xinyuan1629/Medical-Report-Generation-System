@@ -410,7 +410,7 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
   }, [])
 
   return (
-    <Card className="w-full h-full flex flex-col">
+    <Card className="w-full h-full flex flex-col bg-white border-0 shadow-md rounded-xl">
       <CardHeader>
         <CardTitle className="text-xl font-bold">智能诊断流程图</CardTitle>
       </CardHeader>
