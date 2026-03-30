@@ -5,6 +5,8 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { getFlowchartByName, getFlowcharts, saveFlowchart as saveFlowchartApi } from "@/lib/api"
 
 interface FlowchartNode {
   id: string
@@ -103,6 +105,24 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
   ])
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [flowchartName, setFlowchartName] = useState("默认流程图")
+  const [templateNames, setTemplateNames] = useState<string[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState("")
+
+  const refreshTemplates = async () => {
+    try {
+      const charts = (await getFlowcharts()) as Array<{ name?: string }>
+      const names = charts
+        .map((chart) => chart.name)
+        .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+      setTemplateNames(names)
+      if (!selectedTemplate && names.length > 0) {
+        setSelectedTemplate(names[0])
+      }
+    } catch (error) {
+      console.error("Error loading flowchart templates:", error)
+    }
+  }
 
   const drawFlowchart = () => {
     const canvas = canvasRef.current
@@ -230,11 +250,11 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
     switch (type) {
       case "start":
       case "end":
-        return "#fbbf24" // yellow
+        return "#53b5c2" 
       case "process":
-        return "#a7f3d0" // cyan
+        return "#79d19f" // cyan
       case "decision":
-        return "#c084fc" // purple
+        return "#a28fcc" // purple
       default:
         return "#e5e7eb" // gray
     }
@@ -300,20 +320,84 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
   }
 
   const saveFlowchart = async () => {
-    try {
-      const response = await fetch("/api/flowcharts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(nodes),
-      })
+    const name = flowchartName.trim()
+    if (!name) {
+      alert("请先输入流程图名称")
+      return
+    }
 
-      if (response.ok) {
-        console.log("Flowchart saved successfully")
-      }
+    try {
+      await saveFlowchartApi(name, nodes)
+      alert("流程图保存成功")
+      await refreshTemplates()
     } catch (error) {
       console.error("Error saving flowchart:", error)
+      alert("保存失败")
+    }
+  }
+
+  const importTemplateFlowchart = async () => {
+    if (!selectedTemplate) {
+      alert("请先选择模板")
+      return
+    }
+
+    try {
+      const chart = (await getFlowchartByName(selectedTemplate)) as { name?: string; nodes?: FlowchartNode[] }
+      if (!Array.isArray(chart.nodes)) {
+        alert("模板数据格式错误")
+        return
+      }
+      setNodes(chart.nodes)
+      setSelectedNode(null)
+      if (chart.name) {
+        setFlowchartName(chart.name)
+      }
+      alert("模板导入成功")
+    } catch (error) {
+      console.error("Error importing flowchart template:", error)
+      alert("模板导入失败")
+    }
+  }
+
+  const loadFlowchart = () => {
+    const fileInput = document.createElement("input")
+    fileInput.type = "file"
+    fileInput.accept = ".json"
+    fileInput.onchange = (e: any) => {
+      const file = e.target.files[0]
+      if (file) {
+        const reader = new FileReader()
+        reader.onload = (event: any) => {
+          try {
+            const data = JSON.parse(event.target.result)
+            setNodes(data)
+            alert("流程图加载成功")
+          } catch (error) {
+            alert("文件格式错误")
+          }
+        }
+        reader.readAsText(file)
+      }
+    }
+    fileInput.click()
+  }
+
+  const exportFlowchart = () => {
+    const dataStr = JSON.stringify(nodes, null, 2)
+    const blob = new Blob([dataStr], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `flowchart-${Date.now()}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const clearFlowchart = () => {
+    if (confirm("确认要清空所有节点吗？")) {
+      setNodes([])
+      setSelectedNode(null)
     }
   }
 
@@ -321,62 +405,85 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
     drawFlowchart()
   }, [nodes, selectedNode, highlightedNode])
 
+  useEffect(() => {
+    refreshTemplates()
+  }, [])
+
   return (
-    <Card className="w-full">
+    <Card className="w-full h-full flex flex-col">
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>智能诊断流程图</span>
-          <div className="flex space-x-2">
-            <Button size="sm" variant="outline" onClick={() => addNode("start")}>
-              开始
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => addNode("process")}>
-              处理
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => addNode("decision")}>
-              判断
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => addNode("end")}>
-              结束
-            </Button>
-            {selectedNode && (
-              <Button size="sm" variant="destructive" onClick={deleteSelectedNode}>
-                删除
-              </Button>
-            )}
-            <Button size="sm" onClick={saveFlowchart}>
-              保存
-            </Button>
-          </div>
-        </CardTitle>
+        <CardTitle className="text-xl font-bold">智能诊断流程图</CardTitle>
       </CardHeader>
 
-      <CardContent>
-        <canvas
-          ref={canvasRef}
-          width={400}
-          height={500}
-          className="border border-gray-300 rounded-lg cursor-pointer"
-          onClick={handleCanvasClick}
-        />
+      <CardContent className="flex-1 flex flex-col overflow-hidden">
+        {/* Canvas 绘图区域 - 可滚动 */}
+        <div className="flex-1 border border-gray-300 rounded-lg overflow-auto bg-white mb-4">
+          <canvas
+            ref={canvasRef}
+            width={400}
+            height={600}
+            className="cursor-pointer min-w-full min-h-full"
+            onClick={handleCanvasClick}
+          />
+        </div>
 
+        {/* 模板与工具区 */}
+        <div className="mb-4 rounded-xl border border-slate-300 bg-gradient-to-br from-slate-50 via-cyan-50 to-emerald-50 p-3 shadow-sm">
+          <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <Input
+              value={flowchartName}
+              onChange={(e) => setFlowchartName(e.target.value)}
+              placeholder="输入流程图名称"
+              className="md:col-span-2 bg-white"
+            />
+            <Button size="sm" onClick={saveFlowchart} title="保存到 server/flowcharts.json">保存</Button>
+          </div>
+
+          <div className="mb-3 flex gap-2">
+            <select
+              className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+            >
+              {templateNames.length === 0 && <option value="">暂无模板</option>}
+              {templateNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" variant="outline" onClick={refreshTemplates} title="刷新模板列表">
+              刷新模板
+            </Button>
+          </div>
+
+          {/* 按钮网格 - 3x3 排列 */}
+          <div className="grid grid-cols-3 gap-2">
+            <Button size="sm" variant="outline" onClick={() => addNode("start")} title="添加开始节点">开始</Button>
+            <Button size="sm" variant="outline" onClick={() => addNode("process")} title="添加处理节点">处理</Button>
+            <Button size="sm" variant="outline" onClick={() => addNode("decision")} title="添加判断节点">判断</Button>
+
+            <Button size="sm" variant="outline" onClick={() => addNode("end")} title="添加结束节点">结束</Button>
+            <Button size="sm" variant="destructive" onClick={deleteSelectedNode} disabled={!selectedNode} title="删除选中节点">删除</Button>
+            <Button size="sm" variant="outline" onClick={clearFlowchart} title="清空所有节点">清空</Button>
+
+            <Button size="sm" onClick={importTemplateFlowchart} disabled={!selectedTemplate} title="从已保存模板导入">
+              模板导入
+            </Button>
+            <Button size="sm" variant="outline" onClick={loadFlowchart} title="从本地 JSON 文件加载">文件导入</Button>
+            <Button size="sm" variant="outline" onClick={exportFlowchart} title="导出流程图">导出</Button>
+          </div>
+        </div>
+
+        {/* 选中节点信息 */}
         {selectedNode && (
-          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-            <p className="text-sm font-medium">已选择节点: {nodes.find((n) => n.id === selectedNode)?.label}</p>
+          <div className="p-3 bg-blue-50 rounded-lg text-sm">
+            <p className="font-medium">已选择: {nodes.find((n) => n.id === selectedNode)?.label}</p>
             {nodes.find((n) => n.id === selectedNode)?.type === "decision" && (
-              <div className="mt-2 text-xs text-gray-600">
-                <p>点击查看决策逻辑详情</p>
-              </div>
+              <p className="text-xs text-gray-600 mt-1">这是一个判断节点</p>
             )}
           </div>
         )}
-
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-          <div className="flex items-center text-xs text-gray-600">
-            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-            <span>红点表示可查看决策逻辑的判断节点</span>
-          </div>
-        </div>
       </CardContent>
     </Card>
   )
