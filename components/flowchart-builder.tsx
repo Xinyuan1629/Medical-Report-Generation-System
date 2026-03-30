@@ -250,7 +250,7 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
     switch (type) {
       case "start":
       case "end":
-        return "#53b5c2" 
+        return "#53b5c2"
       case "process":
         return "#79d19f" // cyan
       case "decision":
@@ -429,19 +429,22 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
 
         {/* 模板与工具区 */}
         <div className="mb-4 rounded-xl border border-slate-300 bg-gradient-to-br from-slate-50 via-cyan-50 to-emerald-50 p-3 shadow-sm">
-          <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+          {/* 第一行：名称输入 + 保存 */}
+          <div className="mb-3 flex gap-2">
             <Input
               value={flowchartName}
               onChange={(e) => setFlowchartName(e.target.value)}
               placeholder="输入流程图名称"
-              className="md:col-span-2 bg-white"
+              className="flex-1 bg-white"
             />
-            <Button size="sm" onClick={saveFlowchart} title="保存到 server/flowcharts.json">保存</Button>
+            <Button size="sm" onClick={saveFlowchart} title="保存到 server/flowcharts.json"
+              className="w-20">保存</Button>
           </div>
 
+          {/* 第二行：模版选择 + 导入 */}
           <div className="mb-3 flex gap-2">
             <select
-              className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
+              className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm"
               value={selectedTemplate}
               onChange={(e) => setSelectedTemplate(e.target.value)}
             >
@@ -452,26 +455,24 @@ export default function FlowchartBuilder({ highlightedNode, onDecisionClick, onN
                 </option>
               ))}
             </select>
-            <Button size="sm" variant="outline" onClick={refreshTemplates} title="刷新模板列表">
-              刷新模板
+            <Button size="sm" onClick={importTemplateFlowchart} disabled={!selectedTemplate} title="导入选中的模版"
+              className="w-20 h-10">
+              导入
             </Button>
           </div>
 
-          {/* 按钮网格 - 3x3 排列 */}
-          <div className="grid grid-cols-3 gap-2">
+          {/* 第三行：添加节点按钮 */}
+          <div className="mb-2 grid grid-cols-3 gap-2">
             <Button size="sm" variant="outline" onClick={() => addNode("start")} title="添加开始节点">开始</Button>
             <Button size="sm" variant="outline" onClick={() => addNode("process")} title="添加处理节点">处理</Button>
             <Button size="sm" variant="outline" onClick={() => addNode("decision")} title="添加判断节点">判断</Button>
+          </div>
 
-            <Button size="sm" variant="outline" onClick={() => addNode("end")} title="添加结束节点">结束</Button>
+          {/* 第四行：操作按钮 */}
+          <div className="grid grid-cols-3 gap-2">
             <Button size="sm" variant="destructive" onClick={deleteSelectedNode} disabled={!selectedNode} title="删除选中节点">删除</Button>
             <Button size="sm" variant="outline" onClick={clearFlowchart} title="清空所有节点">清空</Button>
-
-            <Button size="sm" onClick={importTemplateFlowchart} disabled={!selectedTemplate} title="从已保存模板导入">
-              模板导入
-            </Button>
-            <Button size="sm" variant="outline" onClick={loadFlowchart} title="从本地 JSON 文件加载">文件导入</Button>
-            <Button size="sm" variant="outline" onClick={exportFlowchart} title="导出流程图">导出</Button>
+            <Button size="sm" variant="outline" onClick={() => addNode("end")} title="添加结束节点">结束</Button>
           </div>
         </div>
 
