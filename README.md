@@ -41,13 +41,27 @@ server/
 
 ## 快速启动
 
-### 1) 启动后端
+### 1) 配置环境变量
+
+复制环境变量示例文件并填入你的 API Key：
 
 ```bash
-uvicorn server.flowchart_save:app --reload --host 0.0.0.0 --port 8000
+cd server
+cp .env.example .env
+# 编辑 .env，填入 DASHSCOPE_API_KEY=your-actual-key
 ```
 
-### 2) 启动前端
+### 2) 启动后端
+
+安装依赖后启动：
+
+```bash
+cd server
+pip install python-dotenv  # 如未安装
+uvicorn flowchart_save:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3) 启动前端
 
 ```bash
 npm install

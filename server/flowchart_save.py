@@ -11,6 +11,13 @@ import re
 from datetime import datetime
 from fastapi import WebSocket, WebSocketDisconnect
 
+# 加载 .env 文件中的环境变量
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv 未安装，请手动设置环境变量或运行: pip install python-dotenv
+
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
@@ -318,9 +325,9 @@ async def analyze_image(request: Request):
     if not images:
         return JSONResponse({'error': '请提供至少一张图像'}, status_code=400)
     
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "sk-1274acadd9634bda91a0aab9b57f7d02")
+    api_key = os.environ.get("DASHSCOPE_API_KEY")
     if not api_key:
-        return JSONResponse({'error': 'DashScope API key not set'}, status_code=500)
+        return JSONResponse({'error': '请设置 DASHSCOPE_API_KEY 环境变量'}, status_code=500)
     
     # 使用 qwen-vl-plus多模态模型
     model_name = "qwen-vl-plus"
@@ -477,9 +484,9 @@ async def generate_report(request: Request):
         model_name = "qwen-plus"
         logging.info(f"\n{'='*50}\n当前使用模型: {model_name} (DashScope/Qwen)\n{'='*50}")
         
-        api_key = os.environ.get("DASHSCOPE_API_KEY", "sk-1274acadd9634bda91a0aab9b57f7d02")
+        api_key = os.environ.get("DASHSCOPE_API_KEY")
         if not api_key:
-            raise RuntimeError("DashScope API key not set")
+            raise RuntimeError("请设置 DASHSCOPE_API_KEY 环境变量")
 
         # 使用 OpenAI 兼容接口（推荐）
         url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
@@ -654,10 +661,10 @@ async def websocket_generate_report(ws: WebSocket):
             model_name = "qwen-plus"
             logging.info(f"\n{'='*50}\n[WebSocket] 当前使用模型: {model_name} (DashScope/Qwen)\n{'='*50}")
             
-            api_key = os.environ.get("DASHSCOPE_API_KEY", "sk-1274acadd9634bda91a0aab9b57f7d02")
+            api_key = os.environ.get("DASHSCOPE_API_KEY")
             if not api_key:
-                logging.error('DashScope API key not set')
-                return "[ERROR] DashScope API key not set"
+                logging.error('请设置 DASHSCOPE_API_KEY 环境变量')
+                return "[ERROR] 请设置 DASHSCOPE_API_KEY 环境变量"
 
             # 使用 OpenAI 兼容接口
             url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
